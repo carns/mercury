@@ -1891,7 +1891,7 @@ na_cci_progress(na_class_t * na_class, na_context_t * context,
         pfd.fd = NA_CCI_PRIVATE_DATA(na_class)->fd;
         pfd.events = POLLIN;
 
-        poll(&pfd, 1, ((int) remaining) * 1000);
+        poll(&pfd, 1, (int)(remaining * 1000.0));
 
         hg_time_get_current(&t1);
 
