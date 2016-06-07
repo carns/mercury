@@ -1888,12 +1888,12 @@ na_cci_progress(na_class_t * na_class, na_context_t * context,
         cci_event_t *event = NULL;
         struct pollfd pfd;
 
+        hg_time_get_current(&t1);
+
         pfd.fd = NA_CCI_PRIVATE_DATA(na_class)->fd;
         pfd.events = POLLIN;
 
         poll(&pfd, 1, (int)(remaining * 1000.0));
-
-        hg_time_get_current(&t1);
 
         rc = cci_get_event(e, &event);
         if (rc) {
@@ -1903,6 +1903,8 @@ na_cci_progress(na_class_t * na_class, na_context_t * context,
 
             hg_time_get_current(&t2);
             remaining -= hg_time_to_double(hg_time_subtract(t2, t1));
+            if(remaining < 0)
+                return(NA_TIMEOUT);
             continue;
         }
 
