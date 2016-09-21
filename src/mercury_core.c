@@ -24,6 +24,7 @@
 #include "mercury_time.h"
 
 #include <stdlib.h>
+#include <assert.h>
 
 /****************/
 /* Local Macros */
@@ -2015,6 +2016,8 @@ hg_core_progress_na(struct hg_context *context, unsigned int timeout)
 {
     double remaining = timeout / 1000.0; /* Convert timeout in ms into seconds */
     hg_return_t ret = HG_TIMEOUT;
+
+assert(remaining >= 0);
 
    for (;;) {
        struct hg_class *hg_class = context->hg_class;
