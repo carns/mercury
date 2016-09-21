@@ -2051,6 +2051,9 @@ hg_core_progress_na(struct hg_context *context, unsigned int timeout)
             break;
         }
 
+        if(remaining < 0)
+            break;
+
         hg_time_get_current(&t1);
 
         /* Otherwise try to make progress on NA */
@@ -2209,9 +2212,9 @@ hg_core_trigger(struct hg_context *context, unsigned int timeout,
         count++;
     }
 
-    if (actual_count) *actual_count = count;
-
 done:
+    if ((ret == HG_SUCCESS || ret == HG_TIMEOUT) && actual_count)
+        *actual_count = count;
     return ret;
 }
 
