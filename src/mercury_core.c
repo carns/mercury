@@ -61,6 +61,7 @@ struct hg_context {
     hg_compqueue_t completion_queue;              /* Completion queue */
     hg_thread_mutex_t completion_queue_mutex;     /* Completion queue mutex */
     hg_thread_cond_t completion_queue_cond;       /* Completion queue cond */
+    hg_bool_t completion_queue_updated;           /* Completion queue updated */
     hg_handlelist_t pending_list;                 /* List of pending handles */
     hg_bool_t recycle_pending_handles;            /* Recycle pending handles */
     hg_thread_mutex_t pending_list_mutex;         /* Pending list mutex */
@@ -1910,6 +1911,8 @@ hg_core_completion_add(struct hg_context *context,
     /* Add handle to completion queue */
     TAILQ_INSERT_HEAD(&context->completion_queue, hg_completion_entry, q);
 
+    context->completion_queue_updated = HG_TRUE;
+
     /* Callback is pushed to the completion queue when something completes
      * so wake up anyone waiting in the trigger */
     hg_thread_cond_signal(&context->completion_queue_cond);
@@ -2010,42 +2013,63 @@ hg_core_progress_self(struct hg_context *context, unsigned int timeout)
 static hg_return_t
 hg_core_progress_na(struct hg_context *context, unsigned int timeout)
 {
-    struct hg_class *hg_class = context->hg_class;
-    hg_bool_t completion_queue_empty = HG_FALSE;
-    unsigned int actual_count = 0;
-    na_return_t na_ret;
-    hg_return_t ret = HG_SUCCESS;
+    double remaining = timeout / 1000.0; /* Convert timeout in ms into seconds */
+    hg_return_t ret = HG_TIMEOUT;
 
-    /* Trigger everything we can from NA, if something completed it will
-     * be moved to the HG context completion queue */
-    do {
-        na_ret = NA_Trigger(hg_class->na_context, 0, 1, &actual_count);
-    } while ((na_ret == NA_SUCCESS) && actual_count);
+   for (;;) {
+       struct hg_class *hg_class = context->hg_class;
+       unsigned int actual_count = 0;
+       hg_bool_t completion_queue_updated = HG_FALSE;
+       na_return_t na_ret;
+       hg_time_t t1, t2;
 
-    /* Is completion queue empty */
-    hg_thread_mutex_lock(&context->completion_queue_mutex);
+       /* Trigger everything we can from NA, if something completed it will
+        * be moved to the HG context completion queue */
+       do {
+           na_ret = NA_Trigger(context->hg_class->na_context, 0, 1, &actual_count);
+       } while ((na_ret == NA_SUCCESS) && actual_count);
 
+       /* We can't only verify that the completion queue is empty, we need
+        * to check whether it was updated or not, as the completion queue
+        * may have been emptied in the meantime */
+       hg_thread_mutex_lock(&context->completion_queue_mutex);
+ 
+#if 0
     completion_queue_empty =
         (TAILQ_EMPTY(&context->completion_queue)) ? HG_TRUE : HG_FALSE;
+#endif
+    completion_queue_updated = context->completion_queue_updated;
 
-    hg_thread_mutex_unlock(&context->completion_queue_mutex);
+       /* Reset it to false until we check again */
+       context->completion_queue_updated = HG_FALSE;
 
-    /* If something is in context completion queue just return */
-    if (!completion_queue_empty) goto done;
+       hg_thread_mutex_unlock(&context->completion_queue_mutex);
 
-    /* Otherwise try to make progress on NA */
-    na_ret = NA_Progress(hg_class->na_class, hg_class->na_context, timeout);
-    switch (na_ret) {
-        case NA_SUCCESS:
-            /* Progressed */
+       /* If something was in context completion queue just return */
+       if (completion_queue_updated) {
+           ret = HG_SUCCESS; /* Progressed */
             break;
-        case NA_TIMEOUT:
-            ret = HG_TIMEOUT;
+        }
+
+        hg_time_get_current(&t1);
+
+        /* Otherwise try to make progress on NA */
+        na_ret = NA_Progress(hg_class->na_class, hg_class->na_context,
+            (unsigned int) (remaining * 1000.0));
+
+        hg_time_get_current(&t2);
+        remaining -= hg_time_to_double(hg_time_subtract(t2, t1));
+
+        if (na_ret == NA_SUCCESS)
+            /* Trigger NA callbacks and check whether we completed something */
+            continue;
+        else if (na_ret == NA_TIMEOUT) {
             break;
-        default:
+        } else {
             HG_LOG_ERROR("Could not make NA Progress");
             ret = HG_NA_ERROR;
-            break;
+            goto done;
+        }
     }
 
 done:
@@ -2093,8 +2117,7 @@ hg_core_progress(struct hg_context *context, unsigned int timeout)
         ret = hg_core_progress_na(context, progress_timeout);
         if (ret == HG_SUCCESS)
             break; /* Progressed */
-        else
-            if (ret != HG_TIMEOUT) {
+        else if (ret != HG_TIMEOUT) {
                 HG_LOG_ERROR("Could not make progress on NA");
                 goto done;
             }
@@ -2421,6 +2444,7 @@ HG_Core_context_create(hg_class_t *hg_class)
 
     context->hg_class = hg_class;
     TAILQ_INIT(&context->completion_queue);
+    context->completion_queue_updated = HG_FALSE;
 
     LIST_INIT(&context->pending_list);
     context->recycle_pending_handles =

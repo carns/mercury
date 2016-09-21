@@ -1457,7 +1457,7 @@ NA_Progress(na_class_t *na_class, na_context_t *context, unsigned int timeout)
     struct na_private_context *na_private_context =
             (struct na_private_context *) context;
     double remaining = timeout / 1000.0; /* Convert timeout in ms into seconds */
-    na_return_t ret = NA_SUCCESS;
+    na_return_t ret = NA_TIMEOUT;
 
     if (!na_class) {
         NA_LOG_ERROR("NULL NA class");
@@ -1487,7 +1487,6 @@ NA_Progress(na_class_t *na_class, na_context_t *context, unsigned int timeout)
         if (remaining <= 0) {
             /* Timeout is 0 so leave */
             hg_thread_mutex_unlock(&na_private_context->progress_mutex);
-            ret = NA_TIMEOUT;
             goto done;
         }
 
@@ -1498,7 +1497,6 @@ NA_Progress(na_class_t *na_class, na_context_t *context, unsigned int timeout)
                 (unsigned int) (remaining * 1000)) != HG_UTIL_SUCCESS) {
             /* Timeout occurred so leave */
             hg_thread_mutex_unlock(&na_private_context->progress_mutex);
-            ret = NA_TIMEOUT;
             goto done;
         }
 
@@ -1536,11 +1534,7 @@ na_return_t
 NA_Trigger(na_context_t *context, unsigned int timeout, unsigned int max_count,
         unsigned int *actual_count)
 {
-    struct na_private_context *na_private_context =
-            (struct na_private_context *) context;
     na_return_t ret = NA_SUCCESS;
-    na_bool_t completion_queue_empty = 0;
-    struct na_cb_completion_data *completion_data = NULL;
     unsigned int count = 0;
 
     if (!context) {
@@ -1550,15 +1544,14 @@ NA_Trigger(na_context_t *context, unsigned int timeout, unsigned int max_count,
     }
 
     while (count < max_count) {
+       struct na_cb_completion_data *completion_data = NULL;
+       struct na_private_context *na_private_context =
+               (struct na_private_context *) context;
+
         hg_thread_mutex_lock(&na_private_context->completion_queue_mutex);
 
         /* Is completion queue empty */
-        completion_queue_empty =
-            (TAILQ_EMPTY(&na_private_context->completion_queue)) ? NA_TRUE
-            : NA_FALSE;
-
-        while (completion_queue_empty) {
-            /* TODO needed ? */
+        while (TAILQ_EMPTY(&na_private_context->completion_queue)) {
             /* If queue is empty and already triggered something, just leave */
             if (count) {
                 hg_thread_mutex_unlock(
