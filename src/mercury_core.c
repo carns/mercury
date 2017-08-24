@@ -2407,18 +2407,27 @@ done:
 static hg_return_t
 hg_core_progress_na(struct hg_context *context, unsigned int timeout)
 {
-    double remaining = timeout / 1000.0; /* Convert timeout in ms into seconds */
     hg_return_t ret = HG_TIMEOUT;
 
-    for (;;) {
-        struct hg_class *hg_class = context->hg_class;
-        unsigned int actual_count = 0;
-        int cb_ret[1] = {0};
-        unsigned int completed_count = 0;
-        unsigned int progress_timeout;
-        na_return_t na_ret;
-        hg_time_t t1, t2;
+    struct hg_class *hg_class = context->hg_class;
+    unsigned int actual_count = 0;
+    int cb_ret[1] = {0};
+    unsigned int completed_count = 0;
+    unsigned int progress_timeout;
+    na_return_t na_ret;
 
+    /* Make sure that it is safe to block */
+    if (timeout &&
+        NA_Poll_try_wait(hg_class->na_class, context->na_context))
+        progress_timeout = timeout;
+    else
+        progress_timeout = 0;
+
+    /* Otherwise try to make progress on NA */
+    na_ret = NA_Progress(hg_class->na_class, context->na_context,
+        progress_timeout);
+
+    if (na_ret == NA_SUCCESS) {
         /* Trigger everything we can from NA, if something completed it will
          * be moved to the HG context completion queue */
         do {
@@ -2436,41 +2445,15 @@ hg_core_progress_na(struct hg_context *context, unsigned int timeout)
             || !hg_atomic_queue_is_empty(context->completion_queue)
             || hg_atomic_get32(&context->backfill_queue_count)) {
             ret = HG_SUCCESS; /* Progressed */
-            break;
-        }
-
-        if (remaining < 0)
-            break;
-
-        if (timeout)
-            hg_time_get_current(&t1);
-
-        /* Make sure that it is safe to block */
-        if (timeout &&
-            NA_Poll_try_wait(hg_class->na_class, context->na_context))
-            progress_timeout = (unsigned int) (remaining * 1000.0);
-        else
-            progress_timeout = 0;
-
-        /* Otherwise try to make progress on NA */
-        na_ret = NA_Progress(hg_class->na_class, context->na_context,
-            progress_timeout);
-
-        if (timeout) {
-            hg_time_get_current(&t2);
-            remaining -= hg_time_to_double(hg_time_subtract(t2, t1));
-        }
-
-        if (na_ret == NA_SUCCESS) {
-            /* Trigger NA callbacks and check whether we completed something */
-            continue;
-        } else if (na_ret == NA_TIMEOUT) {
-            break;
-        } else {
-            HG_LOG_ERROR("Could not make NA Progress");
-            ret = HG_NA_ERROR;
             goto done;
         }
+    } else if (na_ret == NA_TIMEOUT) {
+        ret = HG_TIMEOUT;
+        goto done;
+    } else {
+        HG_LOG_ERROR("Could not make NA Progress");
+        ret = HG_NA_ERROR;
+        goto done;
     }
 
 done:
@@ -2497,35 +2480,22 @@ hg_core_poll_try_wait_cb(void *arg)
 static hg_return_t
 hg_core_progress_poll(struct hg_context *context, unsigned int timeout)
 {
-    double remaining = timeout / 1000.0; /* Convert timeout in ms into seconds */
     hg_return_t ret = HG_TIMEOUT;
+    hg_bool_t progressed;
 
-    do {
-        hg_time_t t1, t2;
-        hg_util_bool_t progressed;
+    /* Will call hg_core_poll_try_wait_cb if timeout is not 0 */
+    if (hg_poll_wait(context->poll_set, timeout,
+        &progressed) != HG_UTIL_SUCCESS) {
+        HG_LOG_ERROR("hg_poll_wait() failed");
+        ret = HG_PROTOCOL_ERROR;
+        goto done;
+    }
 
-        if (timeout)
-            hg_time_get_current(&t1);
-
-        /* Will call hg_core_poll_try_wait_cb if timeout is not 0 */
-        if (hg_poll_wait(context->poll_set, (unsigned int)(remaining * 1000.0),
-            &progressed) != HG_UTIL_SUCCESS) {
-            HG_LOG_ERROR("hg_poll_wait() failed");
-            ret = HG_PROTOCOL_ERROR;
-            goto done;
-        }
-
-        /* We progressed, return success */
-        if (progressed) {
-            ret = HG_SUCCESS;
-            break;
-        }
-
-        if (timeout) {
-            hg_time_get_current(&t2);
-            remaining -= hg_time_to_double(hg_time_subtract(t2, t1));
-        }
-    } while ((int)(remaining * 1000.0) > 0);
+    /* We progressed, return success */
+    if (progressed) {
+        ret = HG_SUCCESS;
+        goto done;
+    }
 
 done:
     return ret;
