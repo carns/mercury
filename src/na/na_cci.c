@@ -536,7 +536,6 @@ na_cci_initialize(na_class_t * na_class, const struct na_info *na_info,
     cci_endpoint_t *endpoint = NULL;
     char *uri = NULL;
     na_return_t ret = NA_SUCCESS;
-    int fd = 0;
     char *device_name = NULL;
     char *hostname = NULL;
     char *service = na_info->host_name;
@@ -625,9 +624,9 @@ na_cci_initialize(na_class_t * na_class, const struct na_info *na_info,
 
     /* Create unspecified endpoint if service is set */
     if (service)
-        rc = cci_create_endpoint_at(device, service, 0, &endpoint, &fd);
+        rc = cci_create_endpoint_at(device, service, 0, &endpoint, NULL);
     else
-        rc = cci_create_endpoint(device, 0, &endpoint, &fd);
+        rc = cci_create_endpoint(device, 0, &endpoint, NULL);
     if (rc) {
         NA_LOG_ERROR("cci_create_endpoint() failed with %s",
             cci_strerror(NULL, rc));
@@ -635,7 +634,7 @@ na_cci_initialize(na_class_t * na_class, const struct na_info *na_info,
         goto out;
     }
     NA_CCI_PRIVATE_DATA(na_class)->endpoint = endpoint;
-    NA_CCI_PRIVATE_DATA(na_class)->fd = fd;
+    NA_CCI_PRIVATE_DATA(na_class)->fd = -1 ;
 
     rc = cci_get_opt(endpoint, CCI_OPT_ENDPT_URI, &uri);
     if (rc) {
@@ -1735,6 +1734,7 @@ out:
 static int
 na_cci_poll_get_fd(na_class_t *na_class, na_context_t NA_UNUSED *context)
 {
+    assert(0);
     return NA_CCI_PRIVATE_DATA(na_class)->fd;
 }
 
