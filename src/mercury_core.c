@@ -2416,12 +2416,14 @@ hg_core_progress_na(struct hg_context *context, unsigned int timeout)
     unsigned int progress_timeout;
     na_return_t na_ret;
 
+#if 0
     /* Make sure that it is safe to block */
     if (timeout &&
         NA_Poll_try_wait(hg_class->na_class, context->na_context))
         progress_timeout = timeout;
     else
         progress_timeout = 0;
+#endif
 
     /* Otherwise try to make progress on NA */
     na_ret = NA_Progress(hg_class->na_class, context->na_context,
