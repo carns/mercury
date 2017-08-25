@@ -2992,6 +2992,7 @@ HG_Core_context_create(hg_class_t *hg_class)
         hg_core_completion_queue_notify_cb, context);
 #endif
 
+#if 0
     /* If NA plugin exposes fd, add it to poll set and use appropriate
      * progress function */
     na_poll_fd = NA_Poll_get_fd(hg_class->na_class, context->na_context);
@@ -3004,6 +3005,9 @@ HG_Core_context_create(hg_class_t *hg_class)
     } else {
         context->progress = hg_core_progress_na;
     }
+#else
+    context->progress = hg_core_progress_na;
+#endif
 
     /* Increment context count of parent class */
     hg_atomic_incr32(&hg_class->n_contexts);
