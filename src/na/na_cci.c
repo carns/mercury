@@ -2025,6 +2025,9 @@ na_cci_progress(na_class_t * na_class, na_context_t * context,
     na_return_t ret = NA_TIMEOUT;
     cci_endpoint_t *e = NA_CCI_PRIVATE_DATA(na_class)->endpoint;
 
+    remaining = 0;
+    timeout = 0;
+
     do {
         int rc;
         hg_time_t t1, t2;
@@ -2032,7 +2035,6 @@ na_cci_progress(na_class_t * na_class, na_context_t * context,
 
         if (timeout)
             hg_time_get_current(&t1);
-
         rc = cci_get_event(e, &event);
         if (rc) {
             if (rc != CCI_EAGAIN)
