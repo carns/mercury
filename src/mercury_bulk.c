@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2016 Argonne National Laboratory, Department of Energy,
+ * Copyright (C) 2013-2017 Argonne National Laboratory, Department of Energy,
  *                    UChicago Argonne, LLC and The HDF Group.
  * All rights reserved.
  *
@@ -98,14 +98,6 @@ struct hg_bulk {
 /********************/
 /* Local Prototypes */
 /********************/
-
-/**
- * Get NA context.
- */
-extern na_context_t *
-hg_core_get_na_context(
-        struct hg_context *context
-        );
 
 /**
  * Create handle.
@@ -675,7 +667,7 @@ hg_bulk_transfer_pieces(na_bulk_op_t na_bulk_op, na_addr_t origin_addr,
 
         if (na_bulk_op) {
             na_ret = na_bulk_op(HG_Core_class_get_na(hg_bulk_op_id->hg_class),
-                hg_core_get_na_context(hg_bulk_op_id->context),
+                HG_Core_context_get_na(hg_bulk_op_id->context),
                 hg_bulk_transfer_cb, hg_bulk_op_id,
                 hg_bulk_local->na_mem_handles[local_segment_index],
                 hg_bulk_local->segments[local_segment_index].address,
@@ -1517,7 +1509,7 @@ HG_Bulk_cancel(hg_op_id_t op_id)
 
             /* Cancel NA operation */
             na_ret = NA_Cancel(HG_Core_class_get_na(hg_bulk_op_id->hg_class),
-                hg_core_get_na_context(hg_bulk_op_id->context),
+                HG_Core_context_get_na(hg_bulk_op_id->context),
                 hg_bulk_op_id->na_op_ids[i]);
             if (na_ret != NA_SUCCESS) {
                 HG_LOG_ERROR("Could not cancel op id");

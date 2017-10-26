@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2016 Argonne National Laboratory, Department of Energy,
+ * Copyright (C) 2013-2017 Argonne National Laboratory, Department of Energy,
  *                    UChicago Argonne, LLC and The HDF Group.
  * All rights reserved.
  *
@@ -253,12 +253,12 @@ hg_request_waitall(int count, hg_request_t *request[], unsigned int timeout,
 }
 
 /*---------------------------------------------------------------------------*/
-hg_return_t
-hg_request_complete_cb(const struct hg_cb_info *cb_info)
-{
-    int ret = hg_request_complete(cb_info->arg);
-    return ret == HG_UTIL_SUCCESS ? HG_SUCCESS : HG_OTHER_ERROR;
-}
+//hg_return_t
+//hg_request_complete_cb(const struct hg_cb_info *cb_info)
+//{
+//    int ret = hg_request_complete(cb_info->arg);
+//    return ret == HG_UTIL_SUCCESS ? HG_SUCCESS : HG_OTHER_ERROR;
+//}
 
 /*---------------------------------------------------------------------------*/
 int

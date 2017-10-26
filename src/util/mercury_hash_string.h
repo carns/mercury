@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2016 Argonne National Laboratory, Department of Energy,
+ * Copyright (C) 2013-2017 Argonne National Laboratory, Department of Energy,
  *                    UChicago Argonne, LLC and The HDF Group.
  * All rights reserved.
  *
@@ -24,8 +24,22 @@ extern "C" {
  *
  * \return Non-negative ID that corresponds to string name
  */
-HG_UTIL_EXPORT unsigned int
-hg_hash_string(const char *string);
+static HG_UTIL_INLINE unsigned int
+hg_hash_string(const char *string)
+{
+    /* This is the djb2 string hash function */
+
+    unsigned int result = 5381;
+    const unsigned char *p;
+
+    p = (const unsigned char *) string;
+
+    while (*p != '\0') {
+        result = (result << 5) + result + *p;
+        ++p;
+    }
+    return result;
+}
 
 #ifdef __cplusplus
 }

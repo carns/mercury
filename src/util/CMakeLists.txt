@@ -7,7 +7,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${MERCURY_UTIL_CMAKE_DIR})
 #------------------------------------------------------------------------------
 # Include source and build directories
 #------------------------------------------------------------------------------
-include_directories(
+set(MERCURY_UTIL_BUILD_INCLUDE_DEPENDENCIES
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_BINARY_DIR}
 )
@@ -85,7 +85,6 @@ if(NOT WIN32)
     if(OPA_FOUND)
       message(STATUS "OPA include directory: ${OPA_INCLUDE_DIRS}")
       set(HG_UTIL_HAS_OPA_PRIMITIVES_H 1)
-      include_directories(${OPA_INCLUDE_DIRS})
       set(MERCURY_UTIL_EXT_INCLUDE_DEPENDENCIES
         ${MERCURY_UTIL_EXT_INCLUDE_DEPENDENCIES}
         ${OPA_INCLUDE_DIRS}
@@ -126,7 +125,6 @@ set(MERCURY_UTIL_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/mercury_atomic_queue.c
   ${CMAKE_CURRENT_SOURCE_DIR}/mercury_event.c
   ${CMAKE_CURRENT_SOURCE_DIR}/mercury_hash_table.c
-  ${CMAKE_CURRENT_SOURCE_DIR}/mercury_hash_string.c
   ${CMAKE_CURRENT_SOURCE_DIR}/mercury_log.c
   ${CMAKE_CURRENT_SOURCE_DIR}/mercury_mem.c
   ${CMAKE_CURRENT_SOURCE_DIR}/mercury_poll.c
@@ -145,6 +143,11 @@ set(MERCURY_UTIL_SRCS
 #----------------------------------------------------------------------------
 # UTIL
 add_library(mercury_util ${MERCURY_UTIL_SRCS})
+target_include_directories(mercury_util
+  PUBLIC  ${MERCURY_UTIL_EXT_INCLUDE_DEPENDENCIES}
+         "$<BUILD_INTERFACE:${MERCURY_UTIL_BUILD_INCLUDE_DEPENDENCIES}>"
+          $<INSTALL_INTERFACE:${MERCURY_INSTALL_INCLUDE_INTERFACE}>
+)
 target_link_libraries(mercury_util ${MERCURY_UTIL_EXT_LIB_DEPENDENCIES})
 mercury_set_lib_options(mercury_util "mercury_util" ${MERCURY_UTIL_LIBTYPE})
 if(MERCURY_ENABLE_COVERAGE)

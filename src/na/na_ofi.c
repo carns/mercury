@@ -1,3 +1,13 @@
+/*
+ * Copyright (C) 2013-2017 Argonne National Laboratory, Department of Energy,
+ *                    UChicago Argonne, LLC and The HDF Group.
+ * All rights reserved.
+ *
+ * The full copyright notice, including terms governing use, modification,
+ * and redistribution, is contained in the COPYING file that can be
+ * found at the root of the source code distribution tree.
+ */
+
 /* Copyright (C) 2017 Intel Corporation
  * All rights reserved.
  *
@@ -82,11 +92,7 @@
  * Specify the version of OFI is coded to, the provider will select struct
  * layouts that are compatible with this version.
  */
-#if FI_MINOR_VERSION >= 5
 #define NA_OFI_VERSION FI_VERSION(1, 5)
-#else
-#define NA_OFI_VERSION FI_VERSION(1, 4)
-#endif
 
 /* Name of providers */
 #define NA_OFI_PROV_SOCKETS_NAME    "sockets"
@@ -114,6 +120,10 @@
 /* The magic number for na_ofi_op_id verification */
 #define NA_OFI_OP_ID_MAGIC_1 (0x1928374655627384ULL)
 #define NA_OFI_OP_ID_MAGIC_2 (0x8171615141312111ULL)
+
+/* Default basic bits */
+#define NA_OFI_MR_BASIC_REQ \
+    (FI_MR_VIRT_ADDR | FI_MR_ALLOCATED | FI_MR_PROV_KEY)
 
 /* the predefined RMA KEY for MR_SCALABLE */
 #define NA_OFI_RMA_KEY (0x0F1B0F1BULL)
@@ -421,8 +431,8 @@ na_ofi_addr_ht_lookup(na_class_t *na_class, struct na_ofi_reqhdr *reqhdr,
                       fi_addr_t *src_addr)
 {
     struct na_ofi_domain *domain = NA_OFI_PRIVATE_DATA(na_class)->nop_domain;
-    na_uint64_t addr_key, *new_key;
-    fi_addr_t *fi_addr, tmp_addr, *new_value;
+    na_uint64_t addr_key, *new_key = NULL;
+    fi_addr_t *fi_addr, tmp_addr, *new_value = NULL;
     char *node, service[16];
     struct in_addr in;
     na_return_t ret = NA_SUCCESS;
@@ -477,6 +487,8 @@ na_ofi_addr_ht_lookup(na_class_t *na_class, struct na_ofi_reqhdr *reqhdr,
     new_value = (fi_addr_t *)malloc(sizeof(*new_value));
     if (new_key == NULL || new_value == NULL) {
         NA_LOG_ERROR("cannot allocate memory for new_key/new_value.");
+        free(new_key);
+        free(new_value);
         ret = NA_NOMEM_ERROR;
         goto unlock;
     }
@@ -769,18 +781,9 @@ na_ofi_getinfo(const char *prov_name, struct fi_info **providers)
     na_return_t ret = NA_SUCCESS;
     int rc;
 
-    /**
-     * Hints to query && filter providers.
-     *
-     * mode: operational mode, NA_OFI passes in context for communication calls.
-     * ep_type: reliable datagram (connection-less).
-     * caps: capabilities required.
-     * msg_order: guarantee that messages with same tag are ordered.
-     * (FI_ORDER_SAS - Send after send. If set, message send operations,
-     *  including tagged sends, are transmitted in the order submitted relative
-     *  to other message send. If not set, message sends may be transmitted out
-     *  of order from their submission).
-     */
+     /**
+      * Hints to query && filter providers.
+      */
     hints = fi_allocinfo();
     if (!hints) {
         NA_LOG_ERROR("fi_allocinfo failed.\n");
@@ -795,16 +798,45 @@ na_ofi_getinfo(const char *prov_name, struct fi_info **providers)
         ret = NA_NOMEM_ERROR;
         goto out;
     }
-    hints->mode          = FI_CONTEXT | FI_LOCAL_MR;
-    hints->ep_attr->type = FI_EP_RDM;
-    hints->caps          = FI_TAGGED | FI_RMA;
-    //hints->tx_attr->msg_order = FI_ORDER_SAS;
-    //hints->rx_attr->msg_order = FI_ORDER_SAS;
 
-    hints->domain_attr->threading = FI_THREAD_UNSPEC;
+    /* mode: operational mode, NA_OFI passes in context for communication calls. */
+    /* FI_ASYNC_IOV mode indicates  that  the  application  must  provide  the
+       buffering needed for the IO vectors. When set, an application must not
+       modify an IO vector  of  length  >  1, including  any  related  memory
+       descriptor array, until the associated operation has completed. */
+    hints->mode          = FI_CONTEXT | FI_ASYNC_IOV;
+
+    /* ep_type: reliable datagram (connection-less). */
+    hints->ep_attr->type = FI_EP_RDM;
+
+    /* caps: capabilities required. */
+    hints->caps          = FI_TAGGED | FI_RMA | FI_DIRECTED_RECV;
+
+    /**
+     * msg_order: guarantee that messages with same tag are ordered.
+     * (FI_ORDER_SAS - Send after send. If set, message send operations,
+     *  including tagged sends, are transmitted in the order submitted relative
+     *  to other message send. If not set, message sends may be transmitted out
+     *  of order from their submission).
+     */
+    hints->tx_attr->msg_order = FI_ORDER_SAS;
+    hints->tx_attr->comp_order = FI_ORDER_NONE; /* No send completion order */
+    /* Generate completion event when it is safe to re-use buffer */
+    hints->tx_attr->op_flags = FI_INJECT_COMPLETE | FI_COMPLETION;
+    hints->rx_attr->op_flags = FI_COMPLETION;
+
+    hints->domain_attr->threading       = FI_THREAD_UNSPEC;
+    hints->domain_attr->av_type         = FI_AV_MAP;
+    hints->domain_attr->resource_mgmt   = FI_RM_ENABLED;
+
+    /* Provider specific configuration (MR mode / caps) */
     if (!strcmp(prov_name, NA_OFI_PROV_SOCKETS_NAME)) {
         /* Limit ourselves to TCP for now */
-        hints->ep_attr->protocol = FI_PROTO_SOCK_TCP;
+        hints->ep_attr->protocol    = FI_PROTO_SOCK_TCP;
+
+        /* For versions 1.5 and later, scalable is implied by the lack of any
+         * mr_mode bits being set. */
+        hints->domain_attr->mr_mode = FI_MR_UNSPEC;
 
         /* As "sockets" provider does not support manual progress and wait
          * objects, set progress to auto for now. Note that the provider
@@ -813,16 +845,24 @@ na_ofi_getinfo(const char *prov_name, struct fi_info **providers)
         hints->domain_attr->control_progress = FI_PROGRESS_AUTO;
         hints->domain_attr->data_progress    = FI_PROGRESS_AUTO;
     } else {
+        /* FI_MR_BASIC */
+        hints->domain_attr->mr_mode = NA_OFI_MR_BASIC_REQ | FI_MR_LOCAL;
+
+        /* Manual progress (no internal progress thread) */
         hints->domain_attr->control_progress = FI_PROGRESS_MANUAL;
         hints->domain_attr->data_progress    = FI_PROGRESS_MANUAL;
+
+        if (!strcmp(prov_name, NA_OFI_PROV_PSM2_NAME)) {
+            /* Can retrieve source address from processes not inserted in AV */
+            hints->caps |= (FI_SOURCE | FI_SOURCE_ERR);
+
+            /* PSM2 provider requires FI_MR_BASIC bit to be set for now */
+            hints->domain_attr->mr_mode |= FI_MR_BASIC;
+        }
+        else if (!strcmp(prov_name, NA_OFI_PROV_VERBS_NAME)) {
+            hints->rx_attr->mode |= FI_CONTEXT;
+        }
     }
-    hints->domain_attr->av_type       = FI_AV_MAP;
-    hints->domain_attr->resource_mgmt = FI_RM_ENABLED;
-#if FI_VERSION_GE(NA_OFI_VERSION, FI_VERSION(1,5))
-    hints->domain_attr->mr_mode       = ~(FI_MR_BASIC | FI_MR_SCALABLE);
-#else
-    hints->domain_attr->mr_mode       = FI_MR_UNSPEC;
-#endif
 
     /**
      * fi_getinfo:  returns information about fabric services.
@@ -856,33 +896,49 @@ na_ofi_check_interface(const char *hostname, char *node, size_t node_len,
     char *domain, size_t domain_len)
 {
     struct ifaddrs *ifaddrs = NULL, *ifaddr;
+    struct addrinfo hints, *hostname_res = NULL;
+    char ip_res[INET_ADDRSTRLEN] = {'\0'}; /* This restricts to ipv4 addresses */
     na_return_t ret = NA_SUCCESS;
     na_bool_t found = NA_FALSE;
+    int s;
 
+    /* Try to resolve hostname first so that we can later compare the IP */
+    memset(&hints, 0, sizeof(struct addrinfo));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = 0;
+    hints.ai_protocol = 0;
+    s = getaddrinfo(hostname, NULL, &hints, &hostname_res);
+    if (s == 0) {
+        struct addrinfo *rp;
+
+        for (rp = hostname_res; rp != NULL; rp = rp->ai_next) {
+            /* Get IP */
+            if (!inet_ntop(rp->ai_addr->sa_family,
+                &((struct sockaddr_in *) rp->ai_addr)->sin_addr, ip_res,
+                INET_ADDRSTRLEN)) {
+                NA_LOG_ERROR("IP could not be resolved");
+                ret = NA_PROTOCOL_ERROR;
+                goto out;
+            }
+            break;
+        }
+    }
+
+    /* Check and compare interfaces */
     if (getifaddrs(&ifaddrs) == -1) {
         NA_LOG_ERROR("getifaddrs() failed");
         ret = NA_PROTOCOL_ERROR;
         goto out;
     }
-
-    /* Check and compare interfaces */
     for (ifaddr = ifaddrs; ifaddr != NULL; ifaddr = ifaddr->ifa_next) {
-        char host[NI_MAXHOST];
-        char ip[INET_ADDRSTRLEN]; /* This restricts to ipv4 addresses */
+        char ip[INET_ADDRSTRLEN] = {'\0'}; /* This restricts to ipv4 addresses */
 
         if (ifaddr->ifa_addr == NULL)
             continue;
 
         if (ifaddr->ifa_addr->sa_family != AF_INET)
             continue;
-
-        /* Get hostname */
-        if (getnameinfo(ifaddr->ifa_addr, sizeof(struct sockaddr_in), host,
-            NI_MAXHOST, NULL, 0, 0) != 0) {
-            NA_LOG_ERROR("Name could not be resolved for: %s", ifaddr->ifa_name);
-            ret = NA_PROTOCOL_ERROR;
-            goto out;
-        }
 
         /* Get IP */
         if (!inet_ntop(ifaddr->ifa_addr->sa_family,
@@ -894,8 +950,7 @@ na_ofi_check_interface(const char *hostname, char *node, size_t node_len,
         }
 
         /* Compare hostnames / device names */
-        if (!strcmp(host, hostname) || !strcmp(ip, hostname) ||
-            !strcmp(ifaddr->ifa_name, hostname)) {
+        if (!strcmp(ip, ip_res) || !strcmp(ifaddr->ifa_name, hostname)) {
             if (node_len)
                strncpy(node, ip, node_len);
             if (domain_len)
@@ -913,6 +968,8 @@ na_ofi_check_interface(const char *hostname, char *node, size_t node_len,
 
 out:
     freeifaddrs(ifaddrs);
+    if (hostname_res)
+        freeaddrinfo(hostname_res);
     return ret;
 }
 
@@ -931,7 +988,8 @@ na_ofi_verify_provider(const char *prov_name, const char *domain_name,
      * checking the domain name as well */
     if (!strcmp(prov_name, NA_OFI_PROV_SOCKETS_NAME)) {
         /* Does not match domain name */
-        if (domain_name && strcmp(domain_name, fi_info->domain_attr->name))
+        if (domain_name && strcmp("\0", domain_name)
+            && strcmp(domain_name, fi_info->domain_attr->name))
             goto out;
     }
 
@@ -1041,39 +1099,24 @@ na_ofi_domain_open(const char *prov_name, const char *domain_name,
         goto out;
     }
 
-    /* Provider specific configuration (MR mode / caps) */
+    /* Set domain configuration (MR mode / caps) */
     if (!strcmp(na_ofi_domain->nod_prov_name, NA_OFI_PROV_SOCKETS_NAME)) {
         na_ofi_domain->nod_prov_type = NA_OFI_PROV_SOCKETS;
-        /* sockets provider without MR_BASIC supporting */
-        na_ofi_domain->nod_prov->domain_attr->mr_mode |= FI_MR_SCALABLE;
-        na_ofi_domain->nod_mr_mode = NA_OFI_MR_SCALABLE;
-#if FI_VERSION_GE(NA_OFI_VERSION, FI_VERSION(1,5))
     } else if (!strcmp(na_ofi_domain->nod_prov_name, NA_OFI_PROV_PSM2_NAME)) {
         na_ofi_domain->nod_prov_type = NA_OFI_PROV_PSM2;
-        na_ofi_domain->nod_prov->caps |= (FI_SOURCE | FI_SOURCE_ERR);
-        na_ofi_domain->nod_prov->domain_attr->mr_mode |= FI_MR_BASIC;
-        na_ofi_domain->nod_mr_mode = NA_OFI_MR_BASIC;
-#endif
     } else if (!strcmp(na_ofi_domain->nod_prov_name, NA_OFI_PROV_VERBS_NAME)) {
         na_ofi_domain->nod_prov_type = NA_OFI_PROV_VERBS;
-        na_ofi_domain->nod_prov->domain_attr->mr_mode |= FI_MR_BASIC;
-        na_ofi_domain->nod_prov->rx_attr->mode |= FI_CONTEXT;
-        na_ofi_domain->nod_mr_mode = NA_OFI_MR_BASIC;
     } else if (!strcmp(na_ofi_domain->nod_prov_name, NA_OFI_PROV_GNI_NAME)) {
         na_ofi_domain->nod_prov_type = NA_OFI_PROV_GNI;
-#if FI_VERSION_GE(NA_OFI_VERSION, FI_VERSION(1,5))
-        na_ofi_domain->nod_prov->domain_attr->mr_mode =
-            FI_MR_VIRT_ADDR | FI_MR_ALLOCATED | FI_MR_PROV_KEY;
-#else
-        na_ofi_domain->nod_prov->domain_attr->mr_mode |= FI_MR_BASIC;
-#endif
-        na_ofi_domain->nod_mr_mode = NA_OFI_MR_BASIC;
     } else {
         NA_LOG_ERROR("bad domain->nod_prov_name %s.",
             na_ofi_domain->nod_prov_name);
         ret = NA_PROTOCOL_ERROR;
         goto out;
     }
+    na_ofi_domain->nod_mr_mode =
+        (na_ofi_domain->nod_prov_type == NA_OFI_PROV_SOCKETS) ?
+            NA_OFI_MR_SCALABLE : NA_OFI_MR_BASIC;
 
     /* Open fi fabric */
     rc = fi_fabric(na_ofi_domain->nod_prov->fabric_attr,/* In:  Fabric attributes */
@@ -1253,21 +1296,22 @@ na_ofi_endpoint_open(const struct na_ofi_domain *na_ofi_domain,
     memset(na_ofi_endpoint, 0, sizeof(struct na_ofi_endpoint));
 
     /* Dup node */
-    if (node && !(na_ofi_endpoint->noe_node = strdup(node))) {
+    if (node && strcmp("\0", node)
+        && !(na_ofi_endpoint->noe_node = strdup(node))) {
         NA_LOG_ERROR("Could not duplicate node name");
         ret = NA_NOMEM_ERROR;
         goto out;
     }
 
     /* Dup service */
-    if (service && !(na_ofi_endpoint->noe_service = strdup(service))) {
+    if (service && strcmp("\0", service)
+        && !(na_ofi_endpoint->noe_service = strdup(service))) {
         NA_LOG_ERROR("Could not duplicate service name");
         ret = NA_NOMEM_ERROR;
         goto out;
     }
 
-#if defined(NA_OFI_HAS_EXT_GNI_H) \
-    && FI_VERSION_GE(NA_OFI_VERSION, FI_VERSION(1,5))
+#if defined(NA_OFI_HAS_EXT_GNI_H)
     if (auth_key) {
         if (na_ofi_domain->nod_prov_type == NA_OFI_PROV_GNI) {
             struct fi_gni_auth_key fi_gni_auth_key;
@@ -1775,6 +1819,9 @@ na_ofi_op_id_addref(struct na_ofi_op_id *na_ofi_op_id)
 static void
 na_ofi_op_id_decref(struct na_ofi_op_id *na_ofi_op_id)
 {
+    if (na_ofi_op_id == NULL)
+        return;
+
     assert(hg_atomic_get32(&na_ofi_op_id->noo_refcount) > 0);
 
     /* If there are more references, return */
@@ -2211,10 +2258,8 @@ na_ofi_msg_buf_alloc(na_class_t *na_class, na_size_t size, void **plugin_data)
         .offset = 0,
         .requested_key = 0,
         .context = NULL,
-#if FI_VERSION_GE(NA_OFI_VERSION, FI_VERSION(1,5))
         .auth_key = NULL,
-        .auth_key_size = 0,
-#endif
+        .auth_key_size = 0
        };
     int rc;
 
@@ -2228,21 +2273,19 @@ na_ofi_msg_buf_alloc(na_class_t *na_class, na_size_t size, void **plugin_data)
     /* Set IOV */
     mr_iov.iov_base = mem_ptr;
     mr_iov.iov_len = (size_t) size;
-    attr.requested_key = (uint64_t) mem_ptr;
+    /* GNI provider does not support user requested key */
+    if (domain->nod_prov_type != NA_OFI_PROV_GNI)
+        attr.requested_key = (uint64_t) mem_ptr;
 
     /* If auth key, register memory with new authorization key */
-#if FI_VERSION_GE(NA_OFI_VERSION, FI_VERSION(1,5))
     if (endpoint->noe_auth_key) {
         attr.auth_key = (uint8_t *) endpoint->noe_auth_key;
         attr.auth_key_size = endpoint->noe_auth_key_size;
     }
-#else
-    (void) endpoint;
-#endif
 
     rc = fi_mr_regattr(domain->nod_domain, &attr, 0, &mr_hdl);
     if (rc != 0) {
-        NA_LOG_ERROR("fi_mr_reg failed, rc: %d(%s).", rc, fi_strerror(-rc));
+        NA_LOG_ERROR("fi_mr_reg failed, rc: %d (%s).", rc, fi_strerror(-rc));
         hg_mem_aligned_free(mem_ptr);
         goto out;
     }
@@ -2686,10 +2729,8 @@ na_ofi_mem_register(na_class_t *na_class, na_mem_handle_t mem_handle)
         .offset = 0,
         .requested_key = 0,
         .context = NULL,
-#if FI_VERSION_GE(NA_OFI_VERSION, FI_VERSION(1,5))
         .auth_key = NULL,
-        .auth_key_size = 0,
-#endif
+        .auth_key_size = 0
        };
     int rc = 0;
     na_return_t ret = NA_SUCCESS;
@@ -2721,14 +2762,10 @@ na_ofi_mem_register(na_class_t *na_class, na_mem_handle_t mem_handle)
     mr_iov.iov_len = (size_t) na_ofi_mem_handle->nom_size;
 
     /* If auth key, register memory with new authorization key */
-#if FI_VERSION_GE(NA_OFI_VERSION, FI_VERSION(1,5))
     if (endpoint->noe_auth_key) {
         attr.auth_key = (uint8_t *) endpoint->noe_auth_key;
         attr.auth_key_size = endpoint->noe_auth_key_size;
     }
-#else
-    (void) endpoint;
-#endif
 
     rc = fi_mr_regattr(domain->nod_domain, &attr, 0,
         &na_ofi_mem_handle->nom_mr_hdl);
@@ -3235,7 +3272,7 @@ na_ofi_progress(na_class_t *na_class, na_context_t *context,
 
     do {
         struct fi_cq_tagged_entry cq_event[NA_OFI_CQ_EVENT_NUM];
-        fi_addr_t src_addr[NA_OFI_CQ_EVENT_NUM];
+        fi_addr_t src_addr[NA_OFI_CQ_EVENT_NUM] = {FI_ADDR_UNSPEC};
         ssize_t rc, i, event_num = 0;
         hg_time_t t1, t2;
 
@@ -3284,7 +3321,7 @@ na_ofi_progress(na_class_t *na_class, na_context_t *context,
             if (rc != 1) {
                 NA_LOG_ERROR("fi_cq_readerr() failed, rc: %d(%s).",
                              rc, fi_strerror((int) -rc));
-                rc = NA_PROTOCOL_ERROR;
+                ret = NA_PROTOCOL_ERROR;
                 break;
             }
             if (cq_err.err == FI_ECANCELED) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2016 Argonne National Laboratory, Department of Energy,
+ * Copyright (C) 2013-2017 Argonne National Laboratory, Department of Energy,
  *                    UChicago Argonne, LLC and The HDF Group.
  * All rights reserved.
  *
@@ -11,7 +11,8 @@
 #ifndef MERCURY_H
 #define MERCURY_H
 
-#include "mercury_core.h"
+#include "mercury_types.h"
+#include "na.h"
 
 /*********************/
 /* Public Prototypes */
