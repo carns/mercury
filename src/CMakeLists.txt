@@ -146,12 +146,22 @@ set(MERCURY_HL_SRCS
 #------------------------------------------------------------------------------
 # Libraries
 #------------------------------------------------------------------------------
+
+# Clean up system include path first
+foreach(item ${MERCURY_SYSTEM_INCLUDE_PATH})
+  if(MERCURY_EXT_INCLUDE_DEPENDENCIES)
+    list(REMOVE_ITEM MERCURY_EXT_INCLUDE_DEPENDENCIES ${item})
+  endif()
+endforeach()
+
 # MERCURY
 add_library(mercury ${MERCURY_SRCS})
 target_include_directories(mercury
-  PUBLIC  ${MERCURY_EXT_INCLUDE_DEPENDENCIES}
-         "$<BUILD_INTERFACE:${MERCURY_BUILD_INCLUDE_DEPENDENCIES}>"
+  PUBLIC  "$<BUILD_INTERFACE:${MERCURY_BUILD_INCLUDE_DEPENDENCIES}>"
           $<INSTALL_INTERFACE:${MERCURY_INSTALL_INCLUDE_INTERFACE}>
+)
+target_include_directories(mercury
+  SYSTEM PUBLIC ${MERCURY_EXT_INCLUDE_DEPENDENCIES}
 )
 target_link_libraries(mercury
   ${MERCURY_EXPORTED_LIBS}
@@ -323,6 +333,9 @@ if(NOT WIN32)
     ${MERCURY_EXT_INCLUDE_DEPENDENCIES}
     ${MERCURY_EXT_PKG_INCLUDE_DEPENDENCIES}
   )
+  if(MERCURY_EXT_INCLUDE_DEPENDENCIES)
+    list(REMOVE_DUPLICATES MERCURY_EXT_INCLUDE_DEPENDENCIES)
+  endif()
   foreach(inc_dep ${MERCURY_EXT_INCLUDE_DEPENDENCIES})
     set(MERCURY_INCLUDE_DEPENDENCIES "${MERCURY_INCLUDE_DEPENDENCIES} -I${inc_dep}")
   endforeach()

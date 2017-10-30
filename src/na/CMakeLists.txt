@@ -271,13 +271,28 @@ endif()
 #----------------------------------------------------------------------------
 # Libraries
 #----------------------------------------------------------------------------
+
+# Clean up system include path first
+foreach(item ${MERCURY_SYSTEM_INCLUDE_PATH})
+  if(NA_EXT_INCLUDE_DEPENDENCIES)
+    list(REMOVE_ITEM NA_EXT_INCLUDE_DEPENDENCIES ${item})
+  endif()
+endforeach()
+foreach(item ${MERCURY_SYSTEM_INCLUDE_PATH})
+  if(NA_INT_INCLUDE_DEPENDENCIES)
+    list(REMOVE_ITEM NA_INT_INCLUDE_DEPENDENCIES ${item})
+  endif()
+endforeach()
+
 # NA
 add_library(na ${NA_SRCS})
 target_include_directories(na
-  PRIVATE ${NA_INT_INCLUDE_DEPENDENCIES}
-  PUBLIC  ${NA_EXT_INCLUDE_DEPENDENCIES}
-         "$<BUILD_INTERFACE:${NA_BUILD_INCLUDE_DEPENDENCIES}>"
+  PUBLIC  "$<BUILD_INTERFACE:${NA_BUILD_INCLUDE_DEPENDENCIES}>"
           $<INSTALL_INTERFACE:${NA_INSTALL_INCLUDE_INTERFACE}>
+)
+target_include_directories(na
+  SYSTEM PUBLIC  ${NA_EXT_INCLUDE_DEPENDENCIES}
+         PRIVATE ${NA_INT_INCLUDE_DEPENDENCIES}
 )
 target_link_libraries(na mercury_util ${NA_EXT_LIB_DEPENDENCIES})
 mercury_set_lib_options(na "na" ${NA_LIBTYPE})

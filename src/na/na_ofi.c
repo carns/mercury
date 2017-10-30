@@ -810,7 +810,15 @@ na_ofi_getinfo(const char *prov_name, struct fi_info **providers)
     hints->ep_attr->type = FI_EP_RDM;
 
     /* caps: capabilities required. */
-    hints->caps          = FI_TAGGED | FI_RMA | FI_DIRECTED_RECV;
+    hints->caps          = FI_TAGGED | FI_RMA;
+
+    /* NB. verbs does not support FI_DIRECTED_RECV, this is okay for now as the
+     * tag passed to the NA expected recv is already unique per RPC. Note though
+     * that nothing at the NA level guarantees that the tag passed will be
+     * unique, this is an assumption based on the current upper HG core layer.
+     */
+    if (strcmp(prov_name, NA_OFI_PROV_VERBS_NAME))
+        hints->caps     |= FI_DIRECTED_RECV;
 
     /**
      * msg_order: guarantee that messages with same tag are ordered.
@@ -3586,11 +3594,16 @@ na_ofi_cancel(na_class_t *na_class, na_context_t NA_UNUSED *context,
         break;
     }
 
-    /* signal the cq to make the wait FD can work */
-    rc = fi_cq_signal(cq_hdl);
-    if (rc != 0 && rc != -ENOSYS)
-        NA_LOG_DEBUG("fi_cq_signal (op type %d) failed, rc: %d(%s).",
-            na_ofi_op_id->noo_type, rc, fi_strerror((int) -rc));
+    /* Work around segfault from verbs provider */
+    if (NA_OFI_PRIVATE_DATA(na_class)->nop_domain->nod_prov_type
+        != NA_OFI_PROV_VERBS) {
+        /* signal the cq to make the wait FD can work */
+        rc = fi_cq_signal(cq_hdl);
+        if (rc != 0 && rc != -ENOSYS)
+            NA_LOG_DEBUG("fi_cq_signal (op type %d) failed, rc: %d(%s).",
+                na_ofi_op_id->noo_type, rc, fi_strerror((int) -rc));
+    }
+
 out:
     return ret;
 }
