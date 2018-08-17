@@ -1036,8 +1036,8 @@ na_ofi_getinfo(const char *prov_name, struct fi_info **providers)
         /* Can retrieve source address from processes not inserted in AV */
         hints->caps |= (FI_SOURCE | FI_SOURCE_ERR);
 
-        /* PSM2 provider requires FI_MR_BASIC bit to be set for now */
-        hints->domain_attr->mr_mode = FI_MR_BASIC;
+	/* use MR_SCALABLE even though it supports MR_BASIC for compatibility with Intel MPI */
+        hints->domain_attr->mr_mode = FI_MR_SCALABLE;
     } else if (!strcmp(prov_name, NA_OFI_PROV_VERBS_NAME)) {
         /* FI_MR_BASIC */
         hints->domain_attr->mr_mode = NA_OFI_MR_BASIC_REQ | FI_MR_LOCAL;
@@ -1351,7 +1351,8 @@ na_ofi_domain_open(struct na_ofi_private_data *priv, const char *prov_name,
         goto out;
     }
     na_ofi_domain->nod_mr_mode =
-        (na_ofi_domain->nod_prov_type == NA_OFI_PROV_SOCKETS) ?
+        (na_ofi_domain->nod_prov_type == NA_OFI_PROV_SOCKETS ||
+         na_ofi_domain->nod_prov_type == NA_OFI_PROV_PSM2) ?
             NA_OFI_MR_SCALABLE : NA_OFI_MR_BASIC;
 
     /* TODO Force no wait if do not support FI_WAIT_FD/FI_WAIT_SET */
