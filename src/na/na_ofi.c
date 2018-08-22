@@ -1353,8 +1353,7 @@ na_ofi_domain_open(struct na_ofi_private_data *priv, const char *prov_name,
             NA_OFI_MR_SCALABLE : NA_OFI_MR_BASIC;
 
     /* TODO Force no wait if do not support FI_WAIT_FD/FI_WAIT_SET */
-    if (na_ofi_domain->nod_prov_type == NA_OFI_PROV_VERBS
-        || na_ofi_domain->nod_prov_type == NA_OFI_PROV_PSM2)
+    if (na_ofi_domain->nod_prov_type == NA_OFI_PROV_PSM2)
         priv->no_wait = NA_TRUE;
 
     if (priv->no_wait) {
@@ -1689,7 +1688,8 @@ na_ofi_basic_ep_open(const struct na_ofi_domain *na_ofi_domain,
 
     if (!no_wait) {
         /* TODO: for now only sockets provider supports wait on fd. */
-        if (na_ofi_domain->nod_prov_type == NA_OFI_PROV_SOCKETS)
+        if (na_ofi_domain->nod_prov_type == NA_OFI_PROV_SOCKETS ||
+            na_ofi_domain->nod_prov_type == NA_OFI_PROV_VERBS)
             cq_attr.wait_obj = FI_WAIT_FD; /* Wait on fd */
         else {
             struct fi_wait_attr wait_attr = {0};
@@ -2448,7 +2448,8 @@ na_ofi_context_create(na_class_t *na_class, void **context, na_uint8_t id)
 
         if (!priv->no_wait) {
             /* TODO: for now only sockets provider supports wait on fd. */
-            if (domain->nod_prov_type == NA_OFI_PROV_SOCKETS)
+            if (domain->nod_prov_type == NA_OFI_PROV_SOCKETS ||
+                domain->nod_prov_type == NA_OFI_PROV_VERBS)
                 cq_attr.wait_obj = FI_WAIT_FD; /* Wait on fd */
             else {
                 struct fi_wait_attr wait_attr = {0};
