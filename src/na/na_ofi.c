@@ -143,7 +143,7 @@
         "",                                                             \
         FI_ADDR_PSMX2,                                                  \
         FI_PROGRESS_AUTO,                                               \
-        FI_MR_BASIC,                                                    \
+        (FI_MR_SCALABLE),                                               \
         (FI_SOURCE | FI_SOURCE_ERR | FI_DIRECTED_RECV),                 \
         (NA_OFI_DOMAIN_LOCK | NA_OFI_WAIT_FD)                           \
     )                                                                   \
