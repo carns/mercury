@@ -12,6 +12,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
 
 extern hg_id_t hg_test_rpc_open_id_g;
 extern hg_id_t hg_test_rpc_open_id_no_resp_g;
@@ -60,6 +61,7 @@ hg_test_rpc_forward_cb(const struct hg_cb_info *callback_info)
     /* Get output parameters */
     rpc_open_ret = rpc_open_out_struct.ret;
     rpc_open_event_id = rpc_open_out_struct.event_id;
+#if 0
     HG_TEST_LOG_DEBUG("rpc_open returned: %d with event_id: %d", rpc_open_ret,
         rpc_open_event_id);
     (void)rpc_open_ret;
@@ -67,6 +69,7 @@ hg_test_rpc_forward_cb(const struct hg_cb_info *callback_info)
         HG_TEST_LOG_ERROR("Cookie did not match RPC response");
         goto done;
     }
+#endif
 
     /* Free request */
     ret = HG_Free_output(handle, &rpc_open_out_struct);
@@ -126,7 +129,7 @@ done:
 /*---------------------------------------------------------------------------*/
 static hg_return_t
 hg_test_rpc(hg_context_t *context, hg_request_class_t *request_class,
-    hg_addr_t addr, hg_id_t rpc_id, hg_cb_t callback)
+    hg_addr_t addr, hg_id_t rpc_id, hg_cb_t callback, int in_size)
 {
     hg_request_t *request = NULL;
     hg_handle_t handle;
@@ -135,6 +138,8 @@ hg_test_rpc(hg_context_t *context, hg_request_class_t *request_class,
     hg_const_string_t rpc_open_path = MERCURY_TESTING_TEMP_DIRECTORY "/test.h5";
     rpc_handle_t rpc_open_handle;
     rpc_open_in_t  rpc_open_in_struct;
+    uint64_t *tester;
+    int i;
 
     request = hg_request_create(request_class);
 
@@ -146,9 +151,17 @@ hg_test_rpc(hg_context_t *context, hg_request_class_t *request_class,
         goto done;
     }
 
+    /* set additional field in mercury header */
+    hg_ret = HG_Get_input_buf(handle, (void**)&tester, NULL);
+    assert(hg_ret == HG_SUCCESS);
+    *tester = 123456;
+
     /* Fill input structure */
     rpc_open_handle.cookie = 100;
-    rpc_open_in_struct.path = rpc_open_path;
+    rpc_open_in_struct.path = calloc(in_size, 1);
+    for(i=0; i<in_size-1; i++)
+        rpc_open_in_struct.path[i] = 'a';
+
     rpc_open_in_struct.handle = rpc_open_handle;
 
     /* Forward call to remote addr and get a new request */
@@ -443,117 +456,22 @@ main(int argc, char *argv[])
     hg_return_t hg_ret;
     hg_id_t inv_id;
     int ret = EXIT_SUCCESS;
+    int i;
 
     /* Initialize the interface */
     HG_Test_init(argc, argv, &hg_test_info);
 
     /* Simple RPC test */
     HG_TEST("simple RPC");
-    hg_ret = hg_test_rpc(hg_test_info.context, hg_test_info.request_class,
-        hg_test_info.target_addr, hg_test_rpc_open_id_g,
-        hg_test_rpc_forward_cb);
-    if (hg_ret != HG_SUCCESS) {
-        ret = EXIT_FAILURE;
-        goto done;
-    }
-    HG_PASSED();
-
-    /* RPC reset test */
-    HG_TEST("RPC reset");
-    hg_ret = hg_test_rpc_reset(hg_test_info.context, hg_test_info.request_class,
-        hg_test_info.target_addr, hg_test_rpc_open_id_g,
-        hg_test_rpc_forward_cb);
-    if (hg_ret != HG_SUCCESS) {
-        ret = EXIT_FAILURE;
-        goto done;
-    }
-    HG_PASSED();
-
-    /* RPC test with tag mask */
-    HG_TEST("tagged RPC");
-    hg_ret = hg_test_rpc_mask(hg_test_info.context, hg_test_info.request_class,
-        hg_test_info.target_addr, hg_test_rpc_open_id_g,
-        hg_test_rpc_forward_cb);
-    if (hg_ret != HG_SUCCESS) {
-        ret = EXIT_FAILURE;
-        goto done;
-    }
-    HG_PASSED();
-
-    /* RPC test with no response */
-    HG_TEST("no response RPC");
-    hg_ret = hg_test_rpc(hg_test_info.context, hg_test_info.request_class,
-        hg_test_info.target_addr, hg_test_rpc_open_id_no_resp_g,
-        hg_test_rpc_forward_no_resp_cb);
-    if (hg_ret != HG_SUCCESS) {
-        ret = EXIT_FAILURE;
-        goto done;
-    }
-    HG_PASSED();
-
-    /* RPC test with unregistered ID */
-    HG_TEST("unregistered RPC");
-    inv_id = MERCURY_REGISTER(hg_test_info.hg_class, "unreg_id", void, void, NULL);
-    hg_ret = HG_Deregister(hg_test_info.hg_class, inv_id);
-    if (hg_ret != HG_SUCCESS) {
-        ret = EXIT_FAILURE;
-        goto done;
-    }
-    hg_ret = hg_test_rpc(hg_test_info.context, hg_test_info.request_class,
-        hg_test_info.target_addr, inv_id, hg_test_rpc_forward_cb);
-    if (hg_ret == HG_SUCCESS) {
-        ret = EXIT_FAILURE;
-        goto done;
-    }
-    HG_PASSED();
-
-    /* RPC test with invalid ID (not registered on server) */
-    HG_TEST("invalid RPC");
-    inv_id = MERCURY_REGISTER(hg_test_info.hg_class, "inv_id", void, void, NULL);
-    hg_ret = hg_test_rpc(hg_test_info.context, hg_test_info.request_class,
-        hg_test_info.target_addr, inv_id, hg_test_rpc_forward_cb);
-    if (hg_ret != HG_SUCCESS) {
-        ret = EXIT_FAILURE;
-        goto done;
-    }
-    HG_PASSED();
-
-    /* RPC test with reset */
-    HG_TEST("reset RPC");
-    hg_ret = hg_test_rpc(hg_test_info.context, hg_test_info.request_class,
-        hg_test_info.target_addr, hg_test_rpc_open_id_g,
-        hg_test_rpc_forward_reset_cb);
-    if (hg_ret != HG_SUCCESS) {
-        ret = EXIT_FAILURE;
-        goto done;
-    }
-    HG_PASSED();
-
-    /* RPC test with multiple handle in flight */
-    HG_TEST("concurrent RPCs");
-    hg_ret = hg_test_rpc_multiple(hg_test_info.context,
-        hg_test_info.request_class, hg_test_info.target_addr, 0,
-        hg_test_rpc_open_id_g, hg_test_rpc_forward_cb);
-    if (hg_ret != HG_SUCCESS) {
-        ret = EXIT_FAILURE;
-        goto done;
-    }
-    HG_PASSED();
-
-    /* RPC test with multiple handle to multiple target contexts */
-    if (hg_test_info.na_test_info.max_contexts) {
-        hg_uint8_t i, context_count =
-            hg_test_info.na_test_info.max_contexts;
-
-        HG_TEST("multi-target RPCs");
-        for (i = 0; i < context_count; i++) {
-            hg_ret = hg_test_rpc_multiple(hg_test_info.context,
-                hg_test_info.request_class, hg_test_info.target_addr, i,
-                hg_test_rpc_open_id_g, hg_test_rpc_forward_cb);
-            if (hg_ret != HG_SUCCESS) {
-                ret = EXIT_FAILURE;
-                goto done;
-            }
+    for(i=100; i<10000; i+=100)
+    {
+        printf("Sending RPC that includes streng of length %d in input struct.\n", i);
+        hg_ret = hg_test_rpc(hg_test_info.context, hg_test_info.request_class,
+            hg_test_info.target_addr, hg_test_rpc_open_id_g,
+            hg_test_rpc_forward_cb, i);
+        if (hg_ret != HG_SUCCESS) {
+            ret = EXIT_FAILURE;
+            goto done;
         }
         HG_PASSED();
     }

@@ -8,6 +8,8 @@
  * found at the root of the source code distribution tree.
  */
 
+#include <assert.h>
+
 #include "mercury_test.h"
 
 #include "mercury_time.h"
@@ -200,6 +202,7 @@ HG_TEST_RPC_CB(hg_test_rpc_open, handle)
     rpc_handle_t rpc_handle;
     int event_id;
     int open_ret;
+    uint64_t *tester;
 
     /* Get input buffer */
     ret = HG_Get_input(handle, &in_struct);
@@ -208,12 +211,25 @@ HG_TEST_RPC_CB(hg_test_rpc_open, handle)
         return ret;
     }
 
+    /* get extra field out of mercury header and check it */
+    ret = HG_Get_input_buf(handle, (void**)&tester, NULL);
+    assert(ret == HG_SUCCESS);
+
+    printf("Got tester value: %lu\n", *tester);
+    if(*tester != 123456)
+    {
+        fprintf(stderr, "Incorrect value in extra header field.\n");
+        return -1;
+    }
+
     /* Get parameters */
     path = in_struct.path;
     rpc_handle = in_struct.handle;
 
+#if 0
     /* Call rpc_open */
     open_ret = rpc_open(path, rpc_handle, &event_id);
+#endif
 
     /* Free input */
     HG_Free_input(handle, &in_struct);

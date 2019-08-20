@@ -36,7 +36,7 @@ MERCURY_GEN_STRUCT_PROC( rpc_handle_t, ((hg_uint64_t)(cookie)) )
 /* 2. Generate processor and struct for required input/output structs
  * MERCURY_GEN_PROC( struct_type_name, fields )
  */
-MERCURY_GEN_PROC( rpc_open_in_t, ((hg_const_string_t)(path)) ((rpc_handle_t)(handle)) )
+MERCURY_GEN_PROC( rpc_open_in_t, ((hg_string_t)(path)) ((rpc_handle_t)(handle)) )
 MERCURY_GEN_PROC( rpc_open_out_t, ((hg_int32_t)(ret)) ((hg_int32_t)(event_id)) )
 #else
 /* Dummy function that needs to be shipped (already defined) */

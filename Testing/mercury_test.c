@@ -414,6 +414,8 @@ HG_Test_init(int argc, char *argv[], struct hg_test_info *hg_test_info)
     }
 #endif
 
+    HG_Class_set_input_offset(hg_test_info->hg_class, sizeof(uint64_t));
+
     /* Set header */
     /*
     HG_Class_set_input_offset(hg_test_info->hg_class, sizeof(hg_uint64_t));
